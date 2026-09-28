@@ -1,0 +1,140 @@
+name: ApiFlow Run
+description: Run an ApiFlow or Bruno-compatible .bru collection in CI
+branding:
+  icon: play
+  color: blue
+inputs:
+  url:
+    description: ApiFlow backend URL (backend mode only)
+    required: false
+    default: http://localhost:8080
+  collection:
+    description: Collection name in ApiFlow workspace (backend mode)
+    required: false
+    default: ''
+  collection-path:
+    description: Path to a local .bru collection folder (standalone mode)
+    required: false
+    default: ''
+  environment:
+    description: Environment name
+    required: false
+    default: ''
+  tags:
+    description: Tag expression or comma-separated tags
+    required: false
+    default: ''
+  folder:
+    description: Folder name filter (backend mode)
+    required: false
+    default: ''
+  csv-file:
+    description: Path to CSV data file (backend mode)
+    required: false
+    default: ''
+  stop-on-failure:
+    description: Stop on first failure
+    required: false
+    default: 'true'
+  start-backend:
+    description: Start embedded Spring Boot backend before run (backend mode)
+    required: false
+    default: 'false'
+  java-version:
+    description: Java version when starting backend
+    required: false
+    default: '17'
+  working-directory:
+    description: Working directory for the run step
+    required: false
+    default: '.'
+outputs:
+  passed:
+    description: Number of passed requests
+    value: ${{ steps.run.outputs.passed }}
+  failed:
+    description: Number of failed requests
+    value: ${{ steps.run.outputs.failed }}
+  total:
+    description: Total requests executed
+    value: ${{ steps.run.outputs.total }}
+  exit-code:
+    description: Process exit code (0 = success)
+    value: ${{ steps.run.outputs.exit-code }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Java
+      if: inputs.start-backend == 'true'
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.java-version }}
+
+    - name: Build backend
+      if: inputs.start-backend == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/backend
+      run: mvn -q -DskipTests package
+
+    - name: Start ApiFlow backend
+      if: inputs.start-backend == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        nohup java -jar backend/target/apiflow-*.jar > apiflow-backend.log 2>&1 &
+        echo $! > apiflow-backend.pid
+        for i in $(seq 1 60); do
+          if curl -sf "${{ inputs.url }}/api/workspace" >/dev/null; then
+            echo "Backend ready"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "Backend failed to start"
+        cat apiflow-backend.log || true
+        exit 1
+
+    - name: Run collection
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        export APIFLOW_URL="${{ inputs.url }}"
+        CLI="$GITHUB_ACTION_PATH/../../../packages/apiflow-cli/index.js"
+        if [ -n "${{ inputs.collection-path }}" ]; then
+          ARGS=(run "${{ inputs.collection-path }}" --local)
+        else
+          if [ -z "${{ inputs.collection }}" ]; then
+            echo "Provide collection or collection-path"
+            exit 1
+          fi
+          ARGS=(run "${{ inputs.collection }}")
+        fi
+        if [ -n "${{ inputs.environment }}" ]; then ARGS+=(--env "${{ inputs.environment }}"); fi
+        if [ -n "${{ inputs.folder }}" ]; then ARGS+=(--folder "${{ inputs.folder }}"); fi
+        if [ "${{ inputs.stop-on-failure }}" = "true" ]; then ARGS+=(--stop); fi
+        if [ -n "${{ inputs.csv-file }}" ]; then ARGS+=(--csv "${{ inputs.csv-file }}"); fi
+        if [ -n "${{ inputs.tags }}" ]; then ARGS+=(--tag "${{ inputs.tags }}"); fi
+        set +e
+        REPORT="$(node "$CLI" "${ARGS[@]}")"
+        CODE=$?
+        set -e
+        echo "$REPORT"
+        PASSED="$(echo "$REPORT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).passed||0)}catch{console.log(0)}})")"
+        FAILED="$(echo "$REPORT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).failed||0)}catch{console.log(0)}})")"
+        TOTAL="$(echo "$REPORT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).total||0)}catch{console.log(0)}})")"
+        echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+        echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
+        echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+        echo "exit-code=$CODE" >> "$GITHUB_OUTPUT"
+        exit $CODE
+
+    - name: Stop backend
+      if: always() && inputs.start-backend == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if [ -f apiflow-backend.pid ]; then
+          kill "$(cat apiflow-backend.pid)" 2>/dev/null || true
+        fi

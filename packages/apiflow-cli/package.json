@@ -1,0 +1,30 @@
+{
+  "name": "@apiflow/cli",
+  "version": "0.3.1",
+  "scripts": {
+    "prepublishOnly": "node --check index.js && node --check bru-runner.js"
+  },
+  "description": "ApiFlow CLI — run Bruno-compatible .bru collections locally or against the ApiFlow backend",
+  "bin": {
+    "apiflow": "index.js"
+  },
+  "type": "module",
+  "files": [
+    "index.js",
+    "bru-runner.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["apiflow", "api", "bruno", "cli", "bru", "testing"],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apiflow/apiflow.git",
+    "directory": "packages/apiflow-cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,158 @@
+#!/bin/sh
+# ApiFlow CLI — talks to the backend on port 8080.
+# Usage:
+#   ./apiflow run <collection> [--env name] [--folder name] [--stop] [--csv file] [--tag tag] [--parallel] [--delay ms]
+#   ./apiflow export <collection> [--format bruno|bruno-folder|postman|openapi|opencollection]
+#   ./apiflow import <file>
+#   ./apiflow grpc reflect <url>
+#   ./apiflow report <collection> [--format html|junit] [--out file]
+
+set -eu
+
+BASE="${APIFLOW_URL:-http://localhost:8080}"
+
+usage() {
+  echo "Usage:"
+  echo "  ./apiflow run <collection> [--env name] [--folder name] [--stop] [--csv file] [--tag tag] [--parallel] [--delay ms]"
+  echo "  ./apiflow export <collection> [--format bruno|bruno-folder|postman|openapi|opencollection]"
+  echo "  ./apiflow import <file>"
+  echo "  ./apiflow grpc reflect <url>"
+  echo "  ./apiflow report <collection> [--format html|junit] [--out file]"
+  exit 0
+}
+
+json() {
+  python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+}
+
+json_list() {
+  python3 - "$@" <<'PY'
+import json, sys
+print(json.dumps(sys.argv[1:]))
+PY
+}
+
+require_backend() {
+  if ! curl -sf -o /dev/null "$BASE/api/workspace"; then
+    echo "ApiFlow is not running. Start it with: cd backend && mvn spring-boot:run"
+    exit 1
+  fi
+}
+
+cmd="${1:-}"
+if [ -z "$cmd" ] || [ "$cmd" = "-h" ] || [ "$cmd" = "--help" ]; then
+  usage
+fi
+shift || true
+
+case "$cmd" in
+  run)
+    COLLECTION="${1:-}"
+    if [ -z "$COLLECTION" ]; then echo "Collection name is required"; exit 1; fi
+    shift || true
+    ENV_NAME=""
+    FOLDER=""
+    STOP="false"
+    CSV=""
+    PARALLEL="false"
+    DELAY="0"
+    TAGS=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --env) ENV_NAME="${2:-}"; shift 2 ;;
+        --folder) FOLDER="${2:-}"; shift 2 ;;
+        --stop) STOP="true"; shift ;;
+        --csv) CSV="$(cat "${2:-}")"; shift 2 ;;
+        --parallel) PARALLEL="true"; shift ;;
+        --delay) DELAY="${2:-0}"; shift 2 ;;
+        --tag) TAGS="${TAGS}${TAGS:+,}\"${2}\""; TAGS="${TAGS:-\"${2}\""}; shift 2 ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+      esac
+    done
+    require_backend
+    TAG_JSON="[]"
+    if [ -n "$TAGS" ]; then TAG_JSON="[$TAGS]"; fi
+    curl -sS -X POST "$BASE/api/cli/run" \
+      -H 'Content-Type: application/json' \
+      -d "{\"collection\":$(printf '%s' "$COLLECTION" | json),\"environment\":$(printf '%s' "$ENV_NAME" | json),\"folder\":$(printf '%s' "$FOLDER" | json),\"stopOnFailure\":$STOP,\"dataCsv\":$(printf '%s' "$CSV" | json),\"parallel\":$PARALLEL,\"delayMs\":$DELAY,\"tags\":$TAG_JSON}"
+    echo
+    ;;
+  export)
+    COLLECTION="${1:-}"
+    if [ -z "$COLLECTION" ]; then echo "Collection name is required"; exit 1; fi
+    shift || true
+    FORMAT="bruno"
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --format) FORMAT="${2:-bruno}"; shift 2 ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+      esac
+    done
+    require_backend
+    ID="$(curl -sS "$BASE/api/workspace" | python3 -c "import json,sys; data=json.load(sys.stdin); name=sys.argv[1]; print(next((c['id'] for c in data.get('collections',[]) if c.get('name')==name), ''))" "$COLLECTION")"
+    if [ -z "$ID" ]; then echo "Collection not found: $COLLECTION"; exit 1; fi
+    case "$FORMAT" in
+      bruno) curl -sS "$BASE/api/collections/$ID/export/bruno" ;;
+      bruno-folder) curl -sS "$BASE/api/collections/$ID/export/bruno-folder" ;;
+      postman) curl -sS "$BASE/api/collections/$ID/export/postman" ;;
+      openapi) curl -sS "$BASE/api/collections/$ID/export/openapi" ;;
+      opencollection) curl -sS "$BASE/api/collections/$ID/export/opencollection" ;;
+      *) echo "Unknown format: $FORMAT"; exit 1 ;;
+    esac
+    ;;
+  import)
+    FILE="${1:-}"
+    if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then echo "File is required"; exit 1; fi
+    require_backend
+    CONTENT="$(cat "$FILE")"
+    curl -sS -X POST "$BASE/api/import" \
+      -H 'Content-Type: application/json' \
+      -d "{\"content\":$(printf '%s' "$CONTENT" | json)}"
+    echo
+    ;;
+  grpc)
+    SUB="${1:-}"
+    shift || true
+    if [ "$SUB" != "reflect" ]; then echo "Unknown grpc command: $SUB"; exit 1; fi
+    URL="${1:-}"
+    if [ -z "$URL" ]; then echo "gRPC URL is required"; exit 1; fi
+    require_backend
+    curl -sS -X POST "$BASE/api/grpc/reflect" \
+      -H 'Content-Type: application/json' \
+      -d "{\"url\":$(printf '%s' "$URL" | json)}"
+    echo
+    ;;
+  report)
+    COLLECTION="${1:-}"
+    if [ -z "$COLLECTION" ]; then echo "Collection name is required"; exit 1; fi
+    shift || true
+    FORMAT="html"
+    OUT=""
+    ENV_NAME=""
+    FOLDER=""
+    STOP="false"
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --format) FORMAT="${2:-html}"; shift 2 ;;
+        --out) OUT="${2:-}"; shift 2 ;;
+        --env) ENV_NAME="${2:-}"; shift 2 ;;
+        --folder) FOLDER="${2:-}"; shift 2 ;;
+        --stop) STOP="true"; shift ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+      esac
+    done
+    require_backend
+    BODY="{\"collection\":$(printf '%s' "$COLLECTION" | json),\"environment\":$(printf '%s' "$ENV_NAME" | json),\"folder\":$(printf '%s' "$FOLDER" | json),\"stopOnFailure\":$STOP,\"dataCsv\":\"\"}"
+    if [ "$FORMAT" = "junit" ]; then
+      TEXT="$(curl -sS -X POST "$BASE/api/run/report/junit" -H 'Content-Type: application/json' -d "$BODY")"
+      if [ -n "$OUT" ]; then printf '%s' "$TEXT" > "$OUT"; echo "Wrote $OUT"; else printf '%s\n' "$TEXT"; fi
+    else
+      TEXT="$(curl -sS -X POST "$BASE/api/run/report/html" -H 'Content-Type: application/json' -d "$BODY")"
+      if [ -n "$OUT" ]; then printf '%s' "$TEXT" > "$OUT"; echo "Wrote $OUT"; else printf '%s\n' "$TEXT"; fi
+    fi
+    ;;
+  *)
+    echo "Unknown command: $cmd"
+    usage
+    ;;
+esac

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Bruno",
+  "scopeName": "source.bru",
+  "patterns": [
+    { "include": "#blocks" },
+    { "include": "#comments" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.bru",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "blocks": {
+      "patterns": [
+        {
+          "name": "meta.block.bru",
+          "begin": "^(meta|get|post|put|patch|delete|head|options|grpc|ws|sse|headers|params|query|tags|docs|settings|vars|assert|script:pre-request|script:post-response|auth:[a-z0-9-]+|body:[a-z]+|multipart)\\s*\\{",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.bru" }
+          },
+          "end": "\\}",
+          "patterns": [
+            { "include": "#comments" },
+            {
+              "name": "meta.key-value.bru",
+              "match": "^\\s*(~?)([A-Za-z0-9_.-]+)\\s*:\\s*(.*)$",
+              "captures": {
+                "1": { "name": "keyword.operator.disabled.bru" },
+                "2": { "name": "variable.parameter.bru" },
+                "3": { "name": "string.unquoted.bru" }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

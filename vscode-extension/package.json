@@ -1,0 +1,93 @@
+{
+  "name": "apiflow",
+  "displayName": "ApiFlow",
+  "description": "Run ApiFlow collections and requests from VS Code",
+  "version": "0.3.0",
+  "license": "Apache-2.0",
+  "publisher": "apiflow",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onView:apiflowCollections",
+    "onCommand:apiflow.openWorkspace",
+    "onCommand:apiflow.runCollection",
+    "onCommand:apiflow.sendRequest",
+    "onCommand:apiflow.pickEnvironment"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "bru",
+        "aliases": ["Bruno", "bru"],
+        "extensions": [".bru"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "bru",
+        "scopeName": "source.bru",
+        "path": "./syntaxes/bru.tmLanguage.json"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "apiflowCollections",
+          "name": "ApiFlow"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "apiflow.openWorkspace",
+        "title": "ApiFlow: Open Workspace"
+      },
+      {
+        "command": "apiflow.runCollection",
+        "title": "ApiFlow: Run Collection"
+      },
+      {
+        "command": "apiflow.sendRequest",
+        "title": "ApiFlow: Send Request from .bru"
+      },
+      {
+        "command": "apiflow.pickEnvironment",
+        "title": "ApiFlow: Pick Environment"
+      },
+      {
+        "command": "apiflow.refreshCollections",
+        "title": "ApiFlow: Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "apiflow.refreshCollections",
+          "when": "view == apiflowCollections",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "apiflow.sendRequest",
+          "when": "resourceExtname == .bru",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}
